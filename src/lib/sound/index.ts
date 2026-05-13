@@ -10,7 +10,9 @@ export type SoundCue =
   | 'pass'
   | 'game_start'
   | 'winner'
-  | 'button_click';
+  | 'button_click'
+  | 'win_increment'
+  | 'play_again';
 
 const placeholderEnabled = false;
 

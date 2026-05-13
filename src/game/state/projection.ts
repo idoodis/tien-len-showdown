@@ -13,14 +13,31 @@ export interface PublicState {
   currentCombo: Combo | null;
   players: Array<{
     seat: number;
-    playerId: string;
-    handCount: number;
-    finishedAt: number | null;
+      playerId: string;
+      handCount: number;
+      finishedAt: number | null;
   }>;
   tick: number;
+  currentGameId: string | null;
+  winnerPlayerId: string | null;
+  winnerDisplayName: string | null;
+  completedGameId: string | null;
+  completedAt: string | null;
 }
 
-export function toPublicState(state: TableState, status: PublicState['status']): PublicState {
+export interface PublicStateMeta {
+  currentGameId?: string | null;
+  winnerPlayerId?: string | null;
+  winnerDisplayName?: string | null;
+  completedGameId?: string | null;
+  completedAt?: string | null;
+}
+
+export function toPublicState(
+  state: TableState,
+  status: PublicState['status'],
+  meta: PublicStateMeta = {},
+): PublicState {
   return {
     status,
     turn: state.turn,
@@ -37,6 +54,11 @@ export function toPublicState(state: TableState, status: PublicState['status']):
       finishedAt: p.finishedAt,
     })),
     tick: state.tick,
+    currentGameId: meta.currentGameId ?? null,
+    winnerPlayerId: meta.winnerPlayerId ?? null,
+    winnerDisplayName: meta.winnerDisplayName ?? null,
+    completedGameId: meta.completedGameId ?? null,
+    completedAt: meta.completedAt ?? null,
   };
 }
 

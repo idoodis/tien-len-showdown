@@ -3,8 +3,10 @@ import 'server-only';
 import { getServiceSupabase } from '@/lib/supabase/service';
 import { applyMove, startGame, validateQueuedMove } from '@/game/rules/engine';
 import type { TableState } from '@/game/rules/types';
+import type { PublicState } from '@/game/state/projection';
 import { toHandsMap, toPublicState } from '@/game/state/projection';
 import type { ApiError, ApiSuccess, RoomPlayerView, RoomStateView } from '@/features/room/types';
+import { applyRoomWinnerScore, getRoomScoreState, getWinnerSnapshot } from '@/server/rooms/scoring';
 import {
   createRoomSchema,
   joinRoomSchema,
@@ -26,6 +28,7 @@ interface RoomRow {
   status: string;
   host_player_id: string | null;
   expires_at: string;
+  rules: Record<string, unknown> | null;
 }
 
 function ok<T>(data: T): ApiSuccess<T> {
@@ -52,7 +55,7 @@ async function getRoomByCode(code: string): Promise<RoomResult<RoomRow>> {
   const normalizedCode = normalizeRoomCode(code);
   const { data, error } = await admin
     .from('rooms')
-    .select('id, code, status, host_player_id, expires_at')
+    .select('id, code, status, host_player_id, expires_at, rules')
     .ilike('code', normalizedCode)
     .maybeSingle();
 
@@ -71,7 +74,7 @@ function toPlayerView(row: {
   seat: number | null;
   is_host: boolean;
   connected: boolean;
-}): RoomPlayerView {
+}, winsByPlayerId: Record<string, number>): RoomPlayerView {
   return {
     playerId: row.player_id,
     displayName: row.display_name,
@@ -79,6 +82,7 @@ function toPlayerView(row: {
     seat: row.seat,
     isHost: row.is_host,
     connected: row.connected,
+    wins: winsByPlayerId[row.player_id] ?? 0,
   };
 }
 
@@ -106,7 +110,8 @@ async function loadRoomState(room: RoomRow, playerId?: string): Promise<RoomResu
     return fail(500, 'room_players_lookup_failed', 'Could not load room players.');
   }
 
-  const players = (playerRows ?? []).map(toPlayerView);
+  const scoreState = getRoomScoreState(room.rules);
+  const players = (playerRows ?? []).map((playerRow) => toPlayerView(playerRow, scoreState.winsByPlayerId));
   const seats: Array<RoomPlayerView | null> = [null, null, null, null];
   for (const player of players) {
     if (player.seatIndex !== null) seats[player.seatIndex] = player;
@@ -448,6 +453,7 @@ export async function startRoom(input: unknown, roomCodeFromPath?: string): Prom
   }
 
   const seed = (Math.random() * 2 ** 31) | 0 || 1;
+  const currentGameId = crypto.randomUUID();
   let tableState: TableState;
   try {
     tableState = startGame({
@@ -459,7 +465,9 @@ export async function startRoom(input: unknown, roomCodeFromPath?: string): Prom
     return fail(500, 'engine_init_failed', 'Could not deal the cards for this room.');
   }
 
-  const publicState = toPublicState(tableState, 'playing');
+  const publicState = toPublicState(tableState, 'playing', {
+    currentGameId,
+  });
   const hands = toHandsMap(tableState);
   const now = new Date().toISOString();
 
@@ -635,7 +643,7 @@ export async function queueMoveInRoom(
   const admin = getServiceSupabase();
   const { data: stateRow, error: stateError } = await admin
     .from('room_state')
-    .select('full_state, queued')
+    .select('full_state, queued, public_state')
     .eq('room_id', room.id)
     .maybeSingle();
 
@@ -744,7 +752,7 @@ async function mutateRoomState(
   const admin = getServiceSupabase();
   const { data: stateRow, error: stateError } = await admin
     .from('room_state')
-    .select('full_state, queued')
+    .select('full_state, queued, public_state')
     .eq('room_id', room.id)
     .maybeSingle();
 
@@ -753,16 +761,42 @@ async function mutateRoomState(
   }
 
   const state = stateRow.full_state as TableState;
+  const currentPublicState = (stateRow.public_state ?? null) as PublicState | null;
   const nextStateResult = await fn(state);
   if (!nextStateResult.ok) return nextStateResult;
 
   const { next, eventKind, eventPayload } = nextStateResult.data;
   const isGameOver = next.finishingOrder.length >= next.players.length - 1;
   const status = isGameOver ? 'game_over' : 'playing';
-  const publicState = toPublicState(next, status);
+  const currentGameId = currentPublicState?.currentGameId ?? crypto.randomUUID();
   const hands = toHandsMap(next);
   const queued = stableQueued((stateRow.queued ?? {}) as Record<string, number[]>, hands);
   const now = new Date().toISOString();
+  const winnerSnapshot = isGameOver
+    ? getWinnerSnapshot(
+      next,
+      await loadPlayerIdentities(room.id),
+      currentGameId,
+      now,
+    )
+    : null;
+  const publicState = toPublicState(
+    next,
+    status,
+    winnerSnapshot
+      ? {
+        currentGameId,
+        winnerPlayerId: winnerSnapshot.winnerPlayerId,
+        winnerDisplayName: winnerSnapshot.winnerDisplayName,
+        completedGameId: winnerSnapshot.completedGameId,
+        completedAt: winnerSnapshot.completedAt,
+      }
+      : { currentGameId },
+  );
+
+  const nextRules = winnerSnapshot
+    ? applyRoomWinnerScore(room.rules, winnerSnapshot.winnerPlayerId, winnerSnapshot.completedGameId)
+    : room.rules;
 
   const [stateUpdate, roomUpdate, eventInsert] = await Promise.all([
     admin.from('room_state').update({
@@ -773,12 +807,19 @@ async function mutateRoomState(
       tick: next.tick,
       updated_at: now,
     }).eq('room_id', room.id),
-    admin.from('rooms').update({ status, updated_at: now }).eq('id', room.id),
+    admin.from('rooms').update({ status, updated_at: now, rules: nextRules }).eq('id', room.id),
     admin.from('room_events').insert({
       room_id: room.id,
       kind: isGameOver ? 'game_over' : eventKind,
       player_id: playerId,
-      payload: isGameOver ? { finishingOrder: next.finishingOrder } : eventPayload,
+      payload: isGameOver
+        ? {
+          finishingOrder: next.finishingOrder,
+          winnerPlayerId: winnerSnapshot?.winnerPlayerId ?? null,
+          winnerDisplayName: winnerSnapshot?.winnerDisplayName ?? null,
+          completedGameId: winnerSnapshot?.completedGameId ?? null,
+        }
+        : eventPayload,
     }),
   ]);
 
@@ -791,8 +832,27 @@ async function mutateRoomState(
     return fail(500, 'room_update_failed', 'The room state could not be updated.');
   }
 
+  room.rules = (nextRules ?? null) as RoomRow['rules'];
   room.status = status;
   return loadRoomState(room, playerId);
+}
+
+async function loadPlayerIdentities(roomId: string) {
+  const admin = getServiceSupabase();
+  const { data, error } = await admin
+    .from('room_players')
+    .select('player_id, display_name')
+    .eq('room_id', roomId);
+
+  if (error) {
+    console.error('[rooms:loadPlayerIdentities]', error);
+    return [];
+  }
+
+  return (data ?? []).map((player) => ({
+    playerId: player.player_id,
+    displayName: player.display_name,
+  }));
 }
 
 function stableQueued(

@@ -243,3 +243,17 @@ The authoritative room logic lives in [service.ts](/C:/Users/syeds/Desktop/Tien-
 7. Verify [service.ts](/C:/Users/syeds/Desktop/Tien-Len-Game/src/lib/supabase/service.ts:1) is only imported from server files.
 8. Verify the seat uniqueness migration exists and has been applied:
    [0002_room_player_seat_index.sql](/C:/Users/syeds/Desktop/Tien-Len-Game/supabase/migrations/0002_room_player_seat_index.sql:1).
+
+## 2026 room win counters
+
+- Wins are scoped to a single invite room.
+- Wins persist across refreshes and rematches while the room exists.
+- Wins are tied to the anonymous local `playerId`, not a permanent account.
+- The room metadata stores both win totals and the last scored `currentGameId`, so the same finished game does not score twice.
+- Every seated player shows a visible room win count, and the current leader gets a crown badge.
+
+## 2026 winner celebration
+
+- `game_over` now carries `winnerPlayerId`, `winnerDisplayName`, `completedGameId`, and `completedAt` in public room state.
+- All clients see the same dramatic victory overlay and scoreboard update through the normal room refetch and Realtime flow.
+- `Play Again` returns the room to the lobby without wiping room win totals.

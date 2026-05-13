@@ -11,6 +11,9 @@ describe('public state projection', () => {
       // The public projection must never carry actual hand contents.
       expect((p as unknown as { hand?: unknown }).hand).toBeUndefined();
     }
+    expect(pub.currentGameId).toBeNull();
+    expect(pub.winnerPlayerId).toBeNull();
+    expect(pub.completedGameId).toBeNull();
   });
 
   it('hidden hands map contains all dealt cards', () => {
@@ -19,5 +22,22 @@ describe('public state projection', () => {
     expect(Object.keys(hands).sort()).toEqual(['a', 'b']);
     expect(hands['a']!.length).toBe(13);
     expect(hands['b']!.length).toBe(13);
+  });
+
+  it('keeps explicit winner metadata in the public projection', () => {
+    const state = startGame({ playerIds: ['host', 'friend'], seed: 77 });
+    const pub = toPublicState(state, 'game_over', {
+      currentGameId: 'game-2',
+      winnerPlayerId: 'host',
+      winnerDisplayName: 'Host',
+      completedGameId: 'game-2',
+      completedAt: '2026-05-13T12:00:00.000Z',
+    });
+
+    expect(pub.currentGameId).toBe('game-2');
+    expect(pub.winnerPlayerId).toBe('host');
+    expect(pub.winnerDisplayName).toBe('Host');
+    expect(pub.completedGameId).toBe('game-2');
+    expect(pub.completedAt).toBe('2026-05-13T12:00:00.000Z');
   });
 });

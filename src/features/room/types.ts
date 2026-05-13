@@ -8,6 +8,7 @@ export interface RoomPlayerView {
   seat: number | null;
   isHost: boolean;
   connected: boolean;
+  wins: number;
 }
 
 export interface RoomStateView {

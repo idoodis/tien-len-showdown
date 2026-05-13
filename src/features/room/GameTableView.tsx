@@ -4,10 +4,12 @@ import { AnimatePresence, motion } from 'framer-motion';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { Hand } from '@/components/cards/Hand';
 import { PlayedPile } from '@/components/cards/PlayedPile';
-import { PlayerSeat } from '@/components/game/PlayerSeat';
 import { TurnAnnouncement } from '@/components/animations/TurnAnnouncement';
 import { WinnerOverlay } from '@/components/animations/WinnerOverlay';
+import { PlayerSeat } from '@/components/game/PlayerSeat';
+import { RoomScoreboard } from '@/components/room/RoomScoreboard';
 import { passTurn, playAgain, playCards, queueMove } from '@/features/room/api';
+import { getLeaderIds } from '@/features/room/scoreboard';
 import type { RoomPlayerView } from '@/features/room/types';
 import { detectCombo } from '@/game/rules/combos';
 import type { Card } from '@/game/rules/types';
@@ -32,8 +34,14 @@ interface Props {
 
 export function GameTableView(props: Props) {
   const { publicState, players, yourHand, code, playerId } = props;
+  const roomPlayersById = useMemo(
+    () => new Map(players.map((player) => [player.playerId, player])),
+    [players],
+  );
+  const leaderIds = useMemo(() => new Set(getLeaderIds(players)), [players]);
   const mySeat = publicState.players.find((player) => player.playerId === playerId)?.seat ?? -1;
   const me = publicState.players.find((player) => player.playerId === playerId);
+  const myRoomPlayer = roomPlayersById.get(playerId) ?? null;
   const isMyTurn = publicState.turn === mySeat && me?.finishedAt === null;
   const gameOver = publicState.status === 'game_over';
 
@@ -41,9 +49,9 @@ export function GameTableView(props: Props) {
   const [queueErr, setQueueErr] = useState<string | null>(null);
   const [shake, setShake] = useState(0);
   const [busy, setBusy] = useState(false);
-
   const [showTurn, setShowTurn] = useState(false);
   const prevTurn = useRef<number>(-1);
+  const announcedWinner = useRef<string | null>(null);
 
   useEffect(() => {
     if (gameOver) return;
@@ -75,6 +83,14 @@ export function GameTableView(props: Props) {
     return () => window.clearTimeout(timeoutId);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [isMyTurn, props.autoSubmitQueued, props.yourQueued]);
+
+  useEffect(() => {
+    if (!gameOver || !publicState.completedGameId) return;
+    if (announcedWinner.current === publicState.completedGameId) return;
+    announcedWinner.current = publicState.completedGameId;
+    playSound('winner', props.mute);
+    playSound('win_increment', props.mute);
+  }, [gameOver, props.mute, publicState.completedGameId]);
 
   const previewCombo = useMemo(() => {
     const cards = yourHand.filter((card) => selected.has(card.id));
@@ -157,6 +173,7 @@ export function GameTableView(props: Props) {
         setQueueErr(result.error);
         return;
       }
+      playSound('play_again', props.mute);
       setQueueErr(null);
       await props.refreshRoom();
     });
@@ -166,40 +183,49 @@ export function GameTableView(props: Props) {
     const others = publicState.players.filter((player) => player.playerId !== playerId);
     const positions: Array<'top' | 'left' | 'right'> =
       others.length === 1 ? ['top']
-        : others.length === 2 ? ['left', 'right']
-          : ['left', 'top', 'right'];
+      : others.length === 2 ? ['left', 'right']
+      : ['left', 'top', 'right'];
 
-    return others.map((player, index) => ({
-      ...player,
-      position: positions[index] ?? 'top',
-      name: players.find((roomPlayer) => roomPlayer.playerId === player.playerId)?.displayName ?? `P${player.seat + 1}`,
-      isHost: players.find((roomPlayer) => roomPlayer.playerId === player.playerId)?.isHost ?? false,
-    }));
-  }, [playerId, players, publicState.players]);
+    return others.map((player, index) => {
+      const roomPlayer = roomPlayersById.get(player.playerId);
+      return {
+        ...player,
+        position: positions[index] ?? 'top',
+        name: roomPlayer?.displayName ?? `P${player.seat + 1}`,
+        isHost: roomPlayer?.isHost ?? false,
+        wins: roomPlayer?.wins ?? 0,
+      };
+    });
+  }, [playerId, publicState.players, roomPlayersById]);
 
-  const winnerSeat = gameOver ? publicState.finishingOrder[0] ?? null : null;
-  const winnerPlayerId = winnerSeat !== null ? publicState.players[winnerSeat]?.playerId ?? null : null;
-  const winnerName = winnerPlayerId
-    ? players.find((player) => player.playerId === winnerPlayerId)?.displayName ?? 'WINNER'
-    : '';
-  const winnerIsYou = winnerSeat === mySeat;
+  const winnerPlayerId = publicState.winnerPlayerId
+    ?? (gameOver ? publicState.players[publicState.finishingOrder[0] ?? -1]?.playerId ?? null : null);
+  const winnerName = publicState.winnerDisplayName
+    ?? (winnerPlayerId ? roomPlayersById.get(winnerPlayerId)?.displayName ?? 'Winner' : '');
+  const winnerIsYou = winnerPlayerId === playerId;
+  const winnerWins = winnerPlayerId ? roomPlayersById.get(winnerPlayerId)?.wins ?? 0 : 0;
 
   const controllingSeat = publicState.controllingSeat;
   const controllerPlayerId = controllingSeat !== null ? publicState.players[controllingSeat]?.playerId ?? null : null;
-  const controllerName = controllerPlayerId
-    ? players.find((player) => player.playerId === controllerPlayerId)?.displayName ?? null
-    : null;
+  const controllerName = controllerPlayerId ? roomPlayersById.get(controllerPlayerId)?.displayName ?? null : null;
 
-  const activeTurnName = players.find((player) => player.playerId === publicState.players[publicState.turn]?.playerId)?.displayName
+  const activeTurnName = roomPlayersById.get(publicState.players[publicState.turn]?.playerId ?? '')?.displayName
     ?? `seat ${publicState.turn + 1}`;
 
   return (
     <div className="space-y-4">
+      <RoomScoreboard
+        players={players}
+        myPlayerId={playerId}
+        winnerPlayerId={winnerPlayerId}
+        compact
+      />
+
       <motion.div
         key={shake}
         animate={shake > 0 ? { x: [0, -6, 6, -4, 4, 0] } : undefined}
         transition={{ duration: 0.32 }}
-        className="arena relative h-[560px] overflow-hidden rounded-2xl"
+        className="arena relative h-[620px] overflow-hidden rounded-2xl"
       >
         {opponentLayout.map((opponent) => (
           <PlayerSeat
@@ -210,9 +236,27 @@ export function GameTableView(props: Props) {
             finishedAt={opponent.finishedAt}
             isHost={opponent.isHost}
             isYou={false}
+            wins={opponent.wins}
+            isLeader={leaderIds.has(opponent.playerId)}
+            isWinner={winnerPlayerId === opponent.playerId}
             position={opponent.position}
           />
         ))}
+
+        {myRoomPlayer && me && (
+          <PlayerSeat
+            name={myRoomPlayer.displayName}
+            cardCount={me.handCount}
+            isActive={isMyTurn && !gameOver}
+            finishedAt={me.finishedAt}
+            isHost={myRoomPlayer.isHost}
+            isYou
+            wins={myRoomPlayer.wins}
+            isLeader={leaderIds.has(myRoomPlayer.playerId)}
+            isWinner={winnerPlayerId === myRoomPlayer.playerId}
+            position="bottom"
+          />
+        )}
 
         <div className="absolute inset-0 grid place-items-center">
           <PlayedPile combo={publicState.currentCombo} controllerName={controllerName} />
@@ -235,6 +279,15 @@ export function GameTableView(props: Props) {
           </div>
         )}
 
+        <div className="panel absolute left-3 top-3 rounded-md px-3 py-2">
+          <div className="font-mono text-[10px] uppercase tracking-[0.35em] text-white/45">
+            Current turn
+          </div>
+          <div className="mt-1 font-display text-lg tracking-[0.16em] text-white">
+            {gameOver ? 'MATCH OVER' : (isMyTurn ? 'YOU' : activeTurnName.toUpperCase())}
+          </div>
+        </div>
+
         <div className="panel absolute right-3 top-3 rounded-md px-3 py-1.5 font-mono text-[10px] uppercase tracking-[0.4em] text-white/60">
           tick {publicState.tick}
         </div>
@@ -243,6 +296,7 @@ export function GameTableView(props: Props) {
           {gameOver && winnerName && (
             <WinnerOverlay
               winnerName={winnerName}
+              winnerWins={winnerWins}
               isYou={winnerIsYou}
               canPlayAgain={props.isHost}
               onPlayAgain={onPlayAgain}
@@ -261,7 +315,7 @@ export function GameTableView(props: Props) {
                   <span className="text-ko-gold">{previewCombo.kind.replace('-', ' ')}</span>
                 </>
               ) : (
-                <span className="text-white/30">select cards…</span>
+                <span className="text-white/30">select cards...</span>
               )}
             </div>
             <div className="flex-1" />
@@ -297,6 +351,14 @@ export function GameTableView(props: Props) {
             )}
             {queueErr && <span className="text-ko-red">{queueErr}</span>}
           </div>
+        </div>
+      )}
+
+      {gameOver && (
+        <div className="panel rounded-md px-4 py-3 text-sm text-white/65">
+          {props.isHost
+            ? 'Play Again resets the table to the lobby and keeps the room win totals.'
+            : 'Waiting for the host to reset the table for the next showdown.'}
         </div>
       )}
 

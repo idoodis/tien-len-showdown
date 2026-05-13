@@ -230,3 +230,14 @@ isolated behind `src/server/rooms/service.ts` plus the `/api/rooms/*` route hand
    - `SUPABASE_SERVICE_ROLE_KEY`
 8. In Supabase, verify [0002_room_player_seat_index.sql](./supabase/migrations/0002_room_player_seat_index.sql) has been applied so only non-null seats are unique per room.
 9. If writes work but reads look stale, redeploy after confirming the server is using the latest [service.ts](./src/lib/supabase/service.ts) with `cache: 'no-store'` on the service-role client.
+
+---
+
+## 14 Â· Room wins and victory overlays
+
+This winner-recognition update does not add any new environment variables or require a separate backend.
+
+- Room win totals are stored in existing room metadata and stay scoped to the room.
+- Win totals persist across refreshes and `Play Again` rematches.
+- The server stores the last scored `currentGameId` so the same completed game is not counted twice.
+- The winner overlay is driven from public `game_over` state, so everyone in the room sees the same champion banner and room score.

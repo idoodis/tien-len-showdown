@@ -5,94 +5,167 @@ import { useAnimationLevel } from '@/features/settings/useSettings';
 
 export function WinnerOverlay({
   winnerName,
+  winnerWins,
   isYou,
-  onPlayAgain,
   canPlayAgain,
+  onPlayAgain,
 }: {
   winnerName: string;
+  winnerWins: number;
   isYou: boolean;
-  onPlayAgain: () => void;
   canPlayAgain: boolean;
+  onPlayAgain: () => void;
 }) {
   const level = useAnimationLevel();
+  const dramatic = level === 'full';
+  const reduced = level === 'reduced';
+
   return (
     <motion.div
       initial={{ opacity: 0 }}
       animate={{ opacity: 1 }}
       exit={{ opacity: 0 }}
-      className="absolute inset-0 z-30 flex flex-col items-center justify-center gap-6 bg-arena-0/85 backdrop-blur"
+      className="absolute inset-0 z-30 overflow-hidden bg-[#04030a]/84 backdrop-blur-[6px]"
     >
-      {level !== 'minimal' && (
-        <>
-          <div className="absolute inset-0 speed-lines animate-speedLines" />
-          {[...Array(level === 'full' ? 22 : 8)].map((_, i) => (
-            <Particle key={i} delay={i * 0.05} />
-          ))}
-        </>
-      )}
-
-      <motion.p
-        initial={{ y: -20, opacity: 0 }}
-        animate={{ y: 0, opacity: 1 }}
-        className="relative font-mono text-xs uppercase tracking-[0.6em] text-ko-blue"
-      >
-        match concluded
-      </motion.p>
-      <motion.h2
-        initial={{ scale: 0.4, opacity: 0, rotate: -6 }}
-        animate={{ scale: 1, opacity: 1, rotate: 0 }}
-        transition={{ type: 'spring', stiffness: 240, damping: 12 }}
-        className="relative font-display leading-none text-ko-gold neon-text"
-        style={{ fontSize: 'min(20vw, 220px)', WebkitTextStroke: '3px rgba(255,255,255,0.18)' }}
-      >
-        K.O.
-      </motion.h2>
-      <motion.p
-        initial={{ opacity: 0, y: 10 }}
-        animate={{ opacity: 1, y: 0 }}
-        transition={{ delay: 0.25 }}
-        className="relative font-display text-4xl md:text-6xl tracking-[0.1em] text-white neon-pink"
-      >
-        {winnerName.toUpperCase()} WINS
-      </motion.p>
-      <motion.p
-        initial={{ opacity: 0 }}
-        animate={{ opacity: 1 }}
-        transition={{ delay: 0.4 }}
-        className="relative font-mono text-xs uppercase tracking-[0.4em] text-white/60"
-      >
-        {isYou ? 'flawless, champion.' : 'better luck next round.'}
-      </motion.p>
       <motion.div
-        initial={{ opacity: 0, y: 12 }}
-        animate={{ opacity: 1, y: 0 }}
-        transition={{ delay: 0.55 }}
-        className="relative pt-2"
+        initial={dramatic ? { scale: 0.9, opacity: 0.7 } : { opacity: 0.85 }}
+        animate={dramatic ? { scale: [0.9, 1.03, 1], opacity: [0.7, 1, 1] } : { opacity: 1 }}
+        transition={{ duration: dramatic ? 0.55 : 0.2, ease: 'easeOut' }}
+        className="absolute inset-0"
       >
-        <button
-          onClick={onPlayAgain}
-          disabled={!canPlayAgain}
-          className="btn-primary text-base"
-          title={canPlayAgain ? '' : 'Only the host can start the next match'}
-        >
-          {canPlayAgain ? 'PLAY AGAIN' : 'WAITING FOR HOST…'}
-        </button>
+        <div className="absolute inset-0 speed-lines animate-speedLines opacity-35" />
+        <div className="absolute inset-0 bg-[radial-gradient(circle_at_50%_40%,rgba(255,216,74,0.32),transparent_26%),radial-gradient(circle_at_20%_20%,rgba(74,217,255,0.18),transparent_25%),radial-gradient(circle_at_80%_15%,rgba(255,90,217,0.22),transparent_22%)]" />
+        <div className="absolute inset-x-[-10%] top-[22%] h-12 -rotate-6 bg-gradient-to-r from-transparent via-ko-gold/55 to-transparent blur-2xl" />
+        <div className="absolute inset-x-[-10%] top-[48%] h-24 -rotate-[12deg] bg-gradient-to-r from-transparent via-white/18 to-transparent blur-xl" />
+        {(dramatic || reduced) && [...Array(dramatic ? 14 : 6)].map((_, index) => (
+          <BurstShard key={index} index={index} dramatic={dramatic} />
+        ))}
       </motion.div>
+
+      <motion.div
+        initial={dramatic ? { x: '-110%' } : { opacity: 0, y: 20 }}
+        animate={dramatic ? { x: 0 } : { opacity: 1, y: 0 }}
+        transition={{ duration: dramatic ? 0.42 : 0.24, ease: dramatic ? [0.16, 1, 0.3, 1] : 'easeOut' }}
+        className="absolute left-[-8%] top-[18%] h-20 w-[130%] -rotate-[8deg] border-y border-white/10 bg-gradient-to-r from-ko-red/85 via-ko-gold/80 to-ko-blue/80 shadow-[0_0_60px_rgba(255,216,74,0.18)]"
+      />
+
+      <div className="relative flex h-full flex-col items-center justify-center px-4 py-8 text-center">
+        <motion.p
+          initial={{ opacity: 0, y: -18 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ delay: 0.08, duration: 0.25 }}
+          className="font-mono text-[11px] uppercase tracking-[0.65em] text-ko-blue"
+        >
+          showdown complete
+        </motion.p>
+
+        <motion.h2
+          initial={dramatic ? { scale: 0.72, rotate: -5, opacity: 0 } : { opacity: 0, y: 10 }}
+          animate={dramatic ? { scale: 1, rotate: 0, opacity: 1 } : { opacity: 1, y: 0 }}
+          transition={{ type: 'spring', stiffness: 210, damping: 16, delay: 0.12 }}
+          className="font-display uppercase leading-none text-white"
+          style={{
+            fontSize: 'min(16vw, 164px)',
+            WebkitTextStroke: '2px rgba(255,255,255,0.16)',
+            textShadow: '0 0 18px rgba(255,216,74,0.38), 0 0 42px rgba(255,90,217,0.22)',
+          }}
+        >
+          {isYou ? 'YOU WIN' : 'VICTORY'}
+        </motion.h2>
+
+        <motion.div
+          initial={{ opacity: 0, y: 16 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ delay: 0.22, duration: 0.3 }}
+          className="mt-5 max-w-4xl"
+        >
+          <div className="mx-auto inline-flex items-center justify-center rounded-full border border-white/15 bg-white/[0.06] px-4 py-2 font-mono text-[10px] uppercase tracking-[0.38em] text-white/65">
+            {isYou ? 'the table has a champion' : 'round claimed'}
+          </div>
+          <div className="mt-5 rounded-[28px] border border-white/10 bg-[linear-gradient(145deg,rgba(15,10,34,0.94),rgba(12,9,24,0.92))] p-5 shadow-[0_30px_120px_rgba(0,0,0,0.55)] md:p-7">
+            <div className="absolute" />
+            <p className="font-mono text-[10px] uppercase tracking-[0.38em] text-ko-gold/85">
+              {isYou ? 'perfect momentum' : 'winner confirmed'}
+            </p>
+            <h3 className="mt-3 font-display text-3xl uppercase tracking-[0.2em] text-white md:text-5xl">
+              {isYou ? 'YOU TAKE THE TABLE' : `${winnerName.toUpperCase()} WINS`}
+            </h3>
+            <p className="mt-3 text-sm text-white/65 md:text-base">
+              {isYou
+                ? `Your room total is now ${winnerWins} ${winnerWins === 1 ? 'win' : 'wins'}.`
+                : `${winnerName} now has ${winnerWins} ${winnerWins === 1 ? 'win' : 'wins'} in this room.`}
+            </p>
+
+            <div className="mt-5 grid gap-3 md:grid-cols-[1.2fr,0.8fr]">
+              <div className="overflow-hidden rounded-2xl border border-ko-blue/18 bg-white/[0.03]">
+                <div className="flex items-center justify-between border-b border-white/8 px-4 py-3">
+                  <span className="font-mono text-[10px] uppercase tracking-[0.35em] text-ko-blue">
+                    Victory readout
+                  </span>
+                  <span className="rounded-full border border-ko-gold/25 bg-ko-gold/10 px-2 py-1 font-mono text-[10px] uppercase tracking-[0.2em] text-ko-gold">
+                    room locked in
+                  </span>
+                </div>
+                <div className="space-y-3 px-4 py-4 text-left">
+                  <p className="text-sm text-white/70">
+                    {isYou
+                      ? 'The round ends with your hand empty and the room score updated for everyone in realtime.'
+                      : 'Everyone in the room sees the same winner state, celebration, and updated room score.'}
+                  </p>
+                  <div className="grid grid-cols-2 gap-3 text-center">
+                    <div className="rounded-2xl border border-white/8 bg-black/20 px-3 py-4">
+                      <div className="font-mono text-[10px] uppercase tracking-[0.3em] text-white/45">winner</div>
+                      <div className="mt-2 font-display text-xl tracking-[0.16em] text-white">
+                        {isYou ? 'YOU' : winnerName.toUpperCase()}
+                      </div>
+                    </div>
+                    <div className="rounded-2xl border border-white/8 bg-black/20 px-3 py-4">
+                      <div className="font-mono text-[10px] uppercase tracking-[0.3em] text-white/45">room wins</div>
+                      <div className="mt-2 font-display text-3xl leading-none text-ko-gold">{winnerWins}</div>
+                    </div>
+                  </div>
+                </div>
+              </div>
+
+              <div className="rounded-2xl border border-ko-red/18 bg-gradient-to-br from-ko-red/16 via-transparent to-ko-gold/12 px-4 py-4 text-left">
+                <div className="font-mono text-[10px] uppercase tracking-[0.35em] text-ko-red">
+                  Next round
+                </div>
+                <p className="mt-3 text-sm text-white/70">
+                  {canPlayAgain
+                    ? 'Reset the table when everyone is ready. Seats and room win counts stay in place.'
+                    : 'The host can reset the table when the celebration ends.'}
+                </p>
+                <button
+                  onClick={onPlayAgain}
+                  disabled={!canPlayAgain}
+                  className="btn-primary mt-5 w-full text-base"
+                  title={canPlayAgain ? '' : 'Only the host can start the next match'}
+                >
+                  {canPlayAgain ? 'PLAY AGAIN' : 'WAITING FOR HOST'}
+                </button>
+              </div>
+            </div>
+          </div>
+        </motion.div>
+      </div>
     </motion.div>
   );
 }
 
-function Particle({ delay }: { delay: number }) {
-  const left = Math.random() * 100;
-  const dx = (Math.random() - 0.5) * 60;
-  const color = ['#ffd84a', '#4ad9ff', '#ff5ad9', '#a25bff'][Math.floor(Math.random() * 4)];
+function BurstShard({ index, dramatic }: { index: number; dramatic: boolean }) {
+  const left = 8 + ((index * 7) % 84);
+  const duration = dramatic ? 1.8 : 1.2;
+  const rotation = (index % 2 === 0 ? 1 : -1) * (18 + index * 4);
+  const color = ['rgba(255,216,74,0.85)', 'rgba(74,217,255,0.75)', 'rgba(255,90,217,0.8)'][index % 3];
+
   return (
     <motion.div
-      initial={{ y: 200, x: 0, opacity: 0 }}
-      animate={{ y: -400, x: dx, opacity: [0, 1, 1, 0] }}
-      transition={{ delay, duration: 2.4, ease: 'easeOut', repeat: Infinity, repeatDelay: 0.3 }}
-      className="absolute h-2 w-2 rounded-full"
-      style={{ left: `${left}%`, top: '60%', background: color, boxShadow: `0 0 12px ${color}` }}
+      initial={{ opacity: 0, y: 160, x: 0, rotate: 0, scale: 0.6 }}
+      animate={{ opacity: [0, 1, 1, 0], y: -220, x: (index % 2 === 0 ? 1 : -1) * (44 + index * 6), rotate: rotation, scale: [0.6, 1, 0.8] }}
+      transition={{ duration, delay: index * 0.05, ease: 'easeOut' }}
+      className="absolute top-[58%] h-12 w-1"
+      style={{ left: `${left}%`, background: color, boxShadow: `0 0 18px ${color}` }}
     />
   );
 }

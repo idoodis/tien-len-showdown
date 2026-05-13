@@ -2,10 +2,11 @@
 
 import { useEffect, useMemo, useState } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
+import { ShowdownIntro } from '@/components/animations/ShowdownIntro';
 import { DisplayNameModal } from '@/components/room/DisplayNameModal';
 import { InviteLinkBox } from '@/components/room/InviteLinkBox';
+import { RoomScoreboard } from '@/components/room/RoomScoreboard';
 import { SeatPicker } from '@/components/room/SeatPicker';
-import { ShowdownIntro } from '@/components/animations/ShowdownIntro';
 import { joinRoom, leaveRoom, leaveSeat, playAgain, sitInRoom, startRoom } from '@/features/room/api';
 import { usePlayerSession } from '@/features/player-session/usePlayerSession';
 import { useRoomChannel } from '@/features/realtime/useRoomChannel';
@@ -96,14 +97,16 @@ export function RoomClient({ code }: { code: string }) {
         isHost: false,
         seatedCount: 0,
         isPlaying: false,
+        showTable: false,
         me: null,
-        startReason: 'Loading room…',
+        startReason: 'Loading room...',
       };
     }
 
     const isHost = data.room.hostPlayerId === session.playerId;
     const seatedCount = data.players.filter((player) => player.seatIndex !== null).length;
     const isPlaying = data.room.status === 'playing';
+    const showTable = Boolean(data.publicState && (data.room.status === 'playing' || data.room.status === 'game_over'));
     const me = data.players.find((player) => player.playerId === session.playerId) ?? null;
 
     let startReason: string | null = null;
@@ -111,7 +114,7 @@ export function RoomClient({ code }: { code: string }) {
     else if (isPlaying) startReason = 'Game already started.';
     else if (seatedCount < 2) startReason = 'Need at least 2 seated players.';
 
-    return { isHost, seatedCount, isPlaying, me, startReason };
+    return { isHost, seatedCount, isPlaying, showTable, me, startReason };
   }, [data, session.playerId]);
 
   if (session.ready && !initialName && !session.displayName) {
@@ -130,7 +133,7 @@ export function RoomClient({ code }: { code: string }) {
   if (!session.ready || !data) {
     return (
       <div className="panel rounded-md p-6 text-sm text-white/60">
-        Connecting to room <span className="font-mono text-ko-gold">{code}</span>…
+        Connecting to room <span className="font-mono text-ko-gold">{code}</span>...
       </div>
     );
   }
@@ -145,7 +148,7 @@ export function RoomClient({ code }: { code: string }) {
     );
   }
 
-  const { isHost, seatedCount, isPlaying, me, startReason } = roomSummary;
+  const { isHost, seatedCount, isPlaying, showTable, me, startReason } = roomSummary;
 
   const handleSit = (seatIndex: number) => {
     if (!displayName) {
@@ -242,11 +245,11 @@ export function RoomClient({ code }: { code: string }) {
         </div>
       )}
 
-      {!isPlaying && (
+      {!showTable && (
         <div className="panel space-y-5 rounded-md p-5">
           <div>
             <h2 className="font-display text-2xl tracking-widest">
-              {data.room.status === 'game_over' ? 'MATCH FINISHED' : 'WAITING ROOM'}
+              WAITING ROOM
             </h2>
             <p className="text-xs text-white/50">
               {isHost
@@ -264,6 +267,8 @@ export function RoomClient({ code }: { code: string }) {
             busy={isBusy}
           />
 
+          <RoomScoreboard players={data.players} myPlayerId={session.playerId} compact />
+
           <div className="flex flex-wrap items-center gap-3">
             {isHost ? (
               <button
@@ -272,15 +277,11 @@ export function RoomClient({ code }: { code: string }) {
                 className="btn-primary text-base"
                 title={startReason ?? undefined}
               >
-                {busyAction === 'start'
-                  ? 'STARTING…'
-                  : data.room.status === 'game_over'
-                    ? 'NEXT SHOWDOWN'
-                    : 'START SHOWDOWN'}
+                {busyAction === 'start' ? 'STARTING...' : 'START SHOWDOWN'}
               </button>
             ) : (
               <span className="font-mono text-xs uppercase tracking-widest text-white/50">
-                waiting for host…
+                waiting for host...
               </span>
             )}
             {startReason && (
@@ -297,13 +298,13 @@ export function RoomClient({ code }: { code: string }) {
         </div>
       )}
 
-      {isPlaying && me && data.publicState && data.yourHand !== null && (
+      {showTable && data.publicState && (
         <GameTableView
           code={code}
           playerId={session.playerId}
           publicState={data.publicState}
           players={data.players}
-          yourHand={data.yourHand}
+          yourHand={data.yourHand ?? []}
           yourQueued={data.yourQueued}
           isHost={isHost}
           onLeave={handleLeave}
@@ -314,9 +315,23 @@ export function RoomClient({ code }: { code: string }) {
         />
       )}
 
-      {isPlaying && !me && (
+      {showTable && (!me || me.seatIndex === null) && (
         <div className="panel rounded-md p-6 text-sm text-white/60">
-          You are spectating. Sit out this match, then join the next showdown when the room resets.
+          You are spectating this showdown. You will still see the winner celebration and live room win counts, then you can join the next match from the lobby.
+        </div>
+      )}
+
+      {!showTable && data.room.status === 'game_over' && (
+        <div className="flex items-center gap-3">
+          {isHost ? (
+            <button onClick={handlePlayAgain} disabled={isBusy} className="btn-primary">
+              {busyAction === 'play-again' ? 'RESETTING...' : 'PLAY AGAIN'}
+            </button>
+          ) : (
+            <span className="font-mono text-xs uppercase tracking-widest text-white/50">
+              waiting for host...
+            </span>
+          )}
         </div>
       )}
     </div>
@@ -333,6 +348,7 @@ function PlayersList({
     seatIndex: number | null;
     isHost: boolean;
     connected: boolean;
+    wins: number;
   }[];
   myPlayerId: string;
 }) {
@@ -350,6 +366,7 @@ function PlayersList({
             {player.isHost && <span className="mr-1 text-ko-gold">★</span>}
             <span className="font-display tracking-widest">{player.displayName}</span>
             {player.seatIndex !== null && <span className="ml-1 text-white/40">· seat {player.seatIndex + 1}</span>}
+            <span className="ml-1 text-white/40">· wins {player.wins}</span>
             {!player.connected && <span className="ml-1 text-ko-red">(offline)</span>}
           </li>
         ))}
