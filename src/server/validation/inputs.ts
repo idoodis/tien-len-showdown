@@ -19,6 +19,10 @@ export const joinRoomSchema = z.object({
 export const sitSchema = z.object({
   code: z.string().min(4).max(10),
   playerId: playerIdSchema,
+  // Display name passed alongside seat so a single round-trip can atomically
+  // ensure room membership AND seat assignment, even if joinRoomAction
+  // hasn't completed yet. Display name is optional — defaults to "Player".
+  displayName: displayNameSchema.optional(),
   seat: z.number().int().min(0).max(3),
 });
 export const standSchema = z.object({

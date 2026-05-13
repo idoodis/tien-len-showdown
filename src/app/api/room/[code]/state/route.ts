@@ -17,9 +17,15 @@ export async function GET(req: Request, { params }: { params: { code: string } }
   if (!playerId) return NextResponse.json({ error: 'missing_player_id' }, { status: 400 });
 
   const admin = getServiceSupabase();
-  const { data: room } = await admin
+  // Case-insensitive room lookup — codes are uppercase by convention but a user
+  // typing manually shouldn't be punished for case.
+  const { data: room, error: roomErr } = await admin
     .from('rooms').select('id, status, host_player_id, code')
-    .eq('code', params.code).maybeSingle();
+    .ilike('code', params.code).maybeSingle();
+  if (roomErr) {
+    console.error('[api/room/state] room lookup failed', roomErr);
+    return NextResponse.json({ error: 'room_lookup_failed' }, { status: 500 });
+  }
   if (!room) return NextResponse.json({ error: 'room_not_found' }, { status: 404 });
 
   const [{ data: stateRow }, { data: players }] = await Promise.all([

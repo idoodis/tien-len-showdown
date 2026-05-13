@@ -20,9 +20,20 @@ function generateRoomCode(): string {
 
 type Result<T = unknown> = { ok: true } & T | { ok: false; error: string };
 
+/** Server-side logger. Visible in `vercel logs` / Vercel function dashboard. */
+function logErr(action: string, detail: unknown) {
+  console.error(`[room:${action}]`, detail);
+}
+
 async function getRoomByCode(code: string) {
   const admin = getServiceSupabase();
-  return admin.from('rooms').select('*').eq('code', code).maybeSingle();
+  // Room codes are uppercased everywhere we generate them, but be defensive about
+  // case-insensitive lookups so paste-typed lowercase codes still resolve.
+  return admin
+    .from('rooms')
+    .select('*')
+    .ilike('code', code)
+    .maybeSingle();
 }
 
 // ─── Create room ───────────────────────────────────────────────────────────
@@ -67,17 +78,21 @@ export async function createRoomAction(
 // ─── Join room ──────────────────────────────────────────────────────────────
 export async function joinRoomAction(input: unknown): Promise<Result<{ roomId: string }>> {
   const parsed = joinRoomSchema.safeParse(input);
-  if (!parsed.success) return { ok: false, error: parsed.error.issues[0]?.message ?? 'invalid' };
+  if (!parsed.success) {
+    logErr('join:bad-input', parsed.error.issues);
+    return { ok: false, error: parsed.error.issues[0]?.message ?? 'invalid input' };
+  }
   const { code, playerId, displayName } = parsed.data;
   const admin = getServiceSupabase();
-  const { data: room } = await getRoomByCode(code);
+  const { data: room, error: roomErr } = await getRoomByCode(code);
+  if (roomErr) { logErr('join:room-lookup', roomErr); return { ok: false, error: 'room_lookup_failed' }; }
   if (!room) return { ok: false, error: 'room_not_found' };
   if (new Date(room.expires_at).getTime() < Date.now()) {
     return { ok: false, error: 'room_expired' };
   }
 
   // Reconnect if the player is already a member; otherwise insert.
-  await admin
+  const { error: upsertErr } = await admin
     .from('room_players')
     .upsert(
       {
@@ -89,6 +104,10 @@ export async function joinRoomAction(input: unknown): Promise<Result<{ roomId: s
       },
       { onConflict: 'room_id,player_id' },
     );
+  if (upsertErr) {
+    logErr('join:upsert', { upsertErr, code, playerId });
+    return { ok: false, error: `join_failed:${upsertErr.message}` };
+  }
 
   // If room has no host (e.g. previous host left), promote this player.
   if (!room.host_player_id) {
@@ -108,23 +127,55 @@ export async function joinRoomAction(input: unknown): Promise<Result<{ roomId: s
 // ─── Sit at seat ────────────────────────────────────────────────────────────
 export async function sitAction(input: unknown): Promise<Result> {
   const parsed = sitSchema.safeParse(input);
-  if (!parsed.success) return { ok: false, error: parsed.error.issues[0]?.message ?? 'invalid' };
-  const { code, playerId, seat } = parsed.data;
+  if (!parsed.success) {
+    logErr('sit:bad-input', parsed.error.issues);
+    return { ok: false, error: parsed.error.issues[0]?.message ?? 'invalid input' };
+  }
+  const { code, playerId, displayName, seat } = parsed.data;
   const admin = getServiceSupabase();
-  const { data: room } = await getRoomByCode(code);
+  const { data: room, error: roomErr } = await getRoomByCode(code);
+  if (roomErr) { logErr('sit:room-lookup', roomErr); return { ok: false, error: 'room_lookup_failed' }; }
   if (!room) return { ok: false, error: 'room_not_found' };
-  if (room.status !== 'lobby') return { ok: false, error: 'game_in_progress' };
+  if (room.status !== 'lobby' && room.status !== 'game_over') {
+    return { ok: false, error: 'game_in_progress' };
+  }
 
-  // ensure seat is free
-  const { data: clash } = await admin
-    .from('room_players').select('player_id').eq('room_id', room.id).eq('seat', seat).maybeSingle();
-  if (clash && clash.player_id !== playerId) return { ok: false, error: 'seat_taken' };
-
-  const { error } = await admin
+  // Look up the player + check for seat collisions in one round-trip.
+  const { data: rows, error: lookupErr } = await admin
     .from('room_players')
-    .update({ seat, last_seen_at: new Date().toISOString() })
-    .match({ room_id: room.id, player_id: playerId });
-  if (error) return { ok: false, error: error.message };
+    .select('player_id, display_name, seat')
+    .eq('room_id', room.id);
+  if (lookupErr) { logErr('sit:players-lookup', lookupErr); return { ok: false, error: 'players_lookup_failed' }; }
+
+  const me = rows?.find((r) => r.player_id === playerId);
+  const occupant = rows?.find((r) => r.seat === seat);
+  if (occupant && occupant.player_id !== playerId) {
+    return { ok: false, error: 'seat_taken' };
+  }
+
+  // Resolve a display name. Prefer the explicit param, then the stored row,
+  // then a default. This guarantees the upsert never fails on NOT NULL.
+  const effectiveName = displayName ?? me?.display_name ?? 'Player';
+
+  // Upsert membership AND seat atomically. If the player wasn't in the room
+  // yet (race with the join effect), this enrolls them in the same call.
+  const { error: upsertErr } = await admin
+    .from('room_players')
+    .upsert(
+      {
+        room_id: room.id,
+        player_id: playerId,
+        display_name: effectiveName,
+        seat,
+        connected: true,
+        last_seen_at: new Date().toISOString(),
+      },
+      { onConflict: 'room_id,player_id' },
+    );
+  if (upsertErr) {
+    logErr('sit:upsert', { upsertErr, code, playerId, seat });
+    return { ok: false, error: `sit_failed:${upsertErr.message}` };
+  }
 
   await admin.from('room_events').insert({
     room_id: room.id,
@@ -138,45 +189,65 @@ export async function sitAction(input: unknown): Promise<Result> {
 
 export async function standAction(input: unknown): Promise<Result> {
   const parsed = standSchema.safeParse(input);
-  if (!parsed.success) return { ok: false, error: parsed.error.issues[0]?.message ?? 'invalid' };
+  if (!parsed.success) {
+    logErr('stand:bad-input', parsed.error.issues);
+    return { ok: false, error: parsed.error.issues[0]?.message ?? 'invalid input' };
+  }
   const { code, playerId } = parsed.data;
   const admin = getServiceSupabase();
-  const { data: room } = await getRoomByCode(code);
+  const { data: room, error: roomErr } = await getRoomByCode(code);
+  if (roomErr) { logErr('stand:room-lookup', roomErr); return { ok: false, error: 'room_lookup_failed' }; }
   if (!room) return { ok: false, error: 'room_not_found' };
-  if (room.status !== 'lobby') return { ok: false, error: 'game_in_progress' };
-  await admin
+  if (room.status !== 'lobby' && room.status !== 'game_over') {
+    return { ok: false, error: 'game_in_progress' };
+  }
+  const { error: upd } = await admin
     .from('room_players')
     .update({ seat: null })
     .match({ room_id: room.id, player_id: playerId });
+  if (upd) { logErr('stand:update', upd); return { ok: false, error: `stand_failed:${upd.message}` }; }
+  revalidatePath(`/room/${code}`);
   return { ok: true };
 }
 
 // ─── Start match ────────────────────────────────────────────────────────────
 export async function startGameAction(input: unknown): Promise<Result> {
   const parsed = startSchema.safeParse(input);
-  if (!parsed.success) return { ok: false, error: parsed.error.issues[0]?.message ?? 'invalid' };
+  if (!parsed.success) {
+    logErr('start:bad-input', parsed.error.issues);
+    return { ok: false, error: parsed.error.issues[0]?.message ?? 'invalid input' };
+  }
   const { code, playerId } = parsed.data;
   const admin = getServiceSupabase();
-  const { data: room } = await getRoomByCode(code);
+  const { data: room, error: roomErr } = await getRoomByCode(code);
+  if (roomErr) { logErr('start:room-lookup', roomErr); return { ok: false, error: 'room_lookup_failed' }; }
   if (!room) return { ok: false, error: 'room_not_found' };
   if (room.host_player_id !== playerId) return { ok: false, error: 'host_only' };
   if (room.status !== 'lobby' && room.status !== 'game_over') {
     return { ok: false, error: 'game_in_progress' };
   }
 
-  const { data: seats } = await admin
+  const { data: seats, error: seatsErr } = await admin
     .from('room_players').select('player_id, seat, display_name')
     .eq('room_id', room.id).not('seat', 'is', null).order('seat');
+  if (seatsErr) { logErr('start:seats-lookup', seatsErr); return { ok: false, error: 'seats_lookup_failed' }; }
   if (!seats || seats.length < 2) return { ok: false, error: 'need_at_least_2_seated' };
+  if (seats.length > 4) return { ok: false, error: 'too_many_seated' };
 
   const seed = (Math.random() * 2 ** 31) | 0 || 1;
   const playerIds = seats.map((s) => s.player_id);
-  const initialState = startGame({ playerIds, seed });
+  let initialState;
+  try {
+    initialState = startGame({ playerIds, seed });
+  } catch (e) {
+    logErr('start:engine', e);
+    return { ok: false, error: 'engine_init_failed' };
+  }
 
   const publicState = toPublicState(initialState, 'playing');
   const hands = toHandsMap(initialState);
 
-  await admin.from('room_state').upsert({
+  const { error: stateErr } = await admin.from('room_state').upsert({
     room_id: room.id,
     full_state: initialState,
     public_state: publicState,
@@ -185,14 +256,18 @@ export async function startGameAction(input: unknown): Promise<Result> {
     tick: initialState.tick,
     updated_at: new Date().toISOString(),
   });
-  await admin.from('rooms').update({
+  if (stateErr) { logErr('start:state-upsert', stateErr); return { ok: false, error: `start_failed:${stateErr.message}` }; }
+
+  const { error: roomUpdErr } = await admin.from('rooms').update({
     status: 'playing',
     updated_at: new Date().toISOString(),
   }).eq('id', room.id);
+  if (roomUpdErr) { logErr('start:room-update', roomUpdErr); return { ok: false, error: `start_failed:${roomUpdErr.message}` }; }
 
   await admin.from('room_events').insert({
     room_id: room.id, kind: 'start', player_id: playerId, payload: { seed },
   });
+  revalidatePath(`/room/${code}`);
   return { ok: true };
 }
 

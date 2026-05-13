@@ -104,8 +104,10 @@ export function useRoomChannel({
       )
       .subscribe();
 
-    // Safety-net poll every 4s in case a Realtime event is dropped.
-    const interval = setInterval(refresh, 4000);
+    // Safety-net poll. 1.5s is short enough that a missed Realtime event
+    // doesn't make the UI feel broken, but long enough not to flood the
+    // serverless route handler.
+    const interval = setInterval(refresh, 1500);
 
     return () => {
       stopped = true;
