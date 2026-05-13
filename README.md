@@ -214,3 +214,32 @@ tests/                        Vitest
 ## License
 
 Add one before shipping.
+
+## 2026 room flow update
+
+The live room flow now uses explicit App Router JSON endpoints for all writes:
+
+- `POST /api/rooms/create`
+- `POST /api/rooms/[roomCode]/join`
+- `POST /api/rooms/[roomCode]/sit`
+- `POST /api/rooms/[roomCode]/leave-seat`
+- `POST /api/rooms/[roomCode]/start`
+- `POST /api/rooms/[roomCode]/play`
+- `POST /api/rooms/[roomCode]/pass`
+- `POST /api/rooms/[roomCode]/play-again`
+
+The authoritative room logic lives in [service.ts](/C:/Users/syeds/Desktop/Tien-Len-Game/src/server/rooms/service.ts:1), and the browser now refetches [state](/C:/Users/syeds/Desktop/Tien-Len-Game/src/app/api/rooms/[roomCode]/state/route.ts:1) after every relevant room event.
+
+## Seat click does nothing - how to debug
+
+1. Open DevTools on the room page and click an empty seat.
+2. Confirm `POST /api/rooms/<ROOM_CODE>/sit` is sent with `playerId`, `displayName`, and `seatIndex`.
+3. Confirm the sit response is structured JSON:
+   `{ "ok": true, "data": ... }` or `{ "ok": false, "error": "...", "code": "..." }`.
+4. If the seat write succeeds but the UI does not change, inspect `GET /api/rooms/<ROOM_CODE>/state`.
+   The seated player should appear in both `players` and `seats`.
+5. Check `localStorage["tls.session"]` in the browser. It must contain a stable `playerId` and the current `displayName`.
+6. Verify the server has `NEXT_PUBLIC_SUPABASE_URL`, `NEXT_PUBLIC_SUPABASE_ANON_KEY`, and `SUPABASE_SERVICE_ROLE_KEY`.
+7. Verify [service.ts](/C:/Users/syeds/Desktop/Tien-Len-Game/src/lib/supabase/service.ts:1) is only imported from server files.
+8. Verify the seat uniqueness migration exists and has been applied:
+   [0002_room_player_seat_index.sql](/C:/Users/syeds/Desktop/Tien-Len-Game/supabase/migrations/0002_room_player_seat_index.sql:1).

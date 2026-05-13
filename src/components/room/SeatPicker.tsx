@@ -1,95 +1,101 @@
 'use client';
 
 import { useState } from 'react';
+import type { RoomPlayerView } from '@/features/room/types';
 import { cn } from '@/lib/utils';
-
-interface SeatRow {
-  player_id: string;
-  display_name: string;
-  seat: number | null;
-  is_host: boolean;
-}
 
 export function SeatPicker({
   players,
   myPlayerId,
   onSit,
   onStand,
+  onSeatBlocked,
   busy,
 }: {
-  players: SeatRow[];
+  players: RoomPlayerView[];
   myPlayerId: string;
-  onSit: (seat: number) => void;
+  onSit: (seatIndex: number) => void;
   onStand: () => void;
+  onSeatBlocked: (message: string) => void;
   busy: boolean;
 }) {
-  /** Per-seat optimistic "pending" indicator. The parent transition already
-   *  globally blocks during the action, but this gives instant feedback on
-   *  *which* seat the click went to. */
   const [pendingSeat, setPendingSeat] = useState<number | null>(null);
-  const mySeat = players.find((p) => p.player_id === myPlayerId)?.seat ?? null;
-  const seats = [0, 1, 2, 3].map((idx) => {
-    const occupant = players.find((p) => p.seat === idx);
-    return { idx, occupant };
-  });
+  const mySeat = players.find((player) => player.playerId === myPlayerId)?.seatIndex ?? null;
+  const seats = [0, 1, 2, 3].map((seatIndex) => ({
+    seatIndex,
+    occupant: players.find((player) => player.seatIndex === seatIndex) ?? null,
+  }));
 
-  // Clear the pending highlight once the upstream busy state flips back to false.
   if (!busy && pendingSeat !== null) {
     queueMicrotask(() => setPendingSeat(null));
   }
 
-  const click = (seat: number, occupied: boolean) => {
-    if (occupied || busy) return;
-    setPendingSeat(seat);
-    onSit(seat);
+  const clickSeat = (seatIndex: number, occupant: RoomPlayerView | null) => {
+    if (busy) return;
+    if (occupant?.playerId === myPlayerId) {
+      onSeatBlocked(`You are already sitting in seat ${seatIndex + 1}.`);
+      return;
+    }
+    if (occupant) {
+      onSeatBlocked(`${occupant.displayName} is already sitting in seat ${seatIndex + 1}.`);
+      return;
+    }
+
+    setPendingSeat(seatIndex);
+    onSit(seatIndex);
   };
 
   return (
     <div className="space-y-3">
       <div className="flex items-center justify-between">
-        <h3 className="font-display tracking-widest text-lg">SEATS</h3>
+        <h3 className="font-display text-lg tracking-widest">SEATS</h3>
         {mySeat !== null && (
           <button onClick={onStand} disabled={busy} className="btn-ghost text-[10px]">
             Stand up
           </button>
         )}
       </div>
-      <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
-        {seats.map(({ idx, occupant }) => {
-          const isMine = occupant?.player_id === myPlayerId;
+      <div className="grid grid-cols-2 gap-3 md:grid-cols-4">
+        {seats.map(({ seatIndex, occupant }) => {
+          const isMine = occupant?.playerId === myPlayerId;
+          const pending = pendingSeat === seatIndex;
           const empty = !occupant;
-          const pending = pendingSeat === idx;
-          const otherTaken = !!occupant && !isMine;
           return (
             <button
-              key={idx}
+              key={seatIndex}
               type="button"
-              onClick={() => click(idx, !!occupant)}
-              disabled={otherTaken || busy}
-              aria-label={empty ? `Sit in seat ${idx + 1}` : `Seat ${idx + 1} taken by ${occupant!.display_name}`}
+              onClick={() => clickSeat(seatIndex, occupant)}
+              disabled={busy}
+              aria-label={empty ? `Sit in seat ${seatIndex + 1}` : `Seat ${seatIndex + 1} taken by ${occupant.displayName}`}
               className={cn(
-                'rounded-md p-3 text-left transition relative',
+                'relative rounded-md p-3 text-left transition',
                 empty
                   ? 'panel border-dashed border-white/20 hover:border-ko-blue/50 hover:bg-ko-blue/5'
                   : 'panel border-ko-gold/40',
                 empty && !busy && 'cursor-pointer',
-                otherTaken && 'cursor-not-allowed opacity-90',
+                occupant && !isMine && 'hover:border-ko-red/50',
                 isMine && 'shadow-neonGold ring-1 ring-ko-gold/60',
-                pending && 'ring-1 ring-ko-blue/60 animate-pulse',
+                pending && 'animate-pulse ring-1 ring-ko-blue/60',
               )}
+              title={
+                occupant && !isMine
+                  ? `${occupant.displayName} already has this seat.`
+                  : undefined
+              }
             >
               <div className="flex items-center justify-between">
                 <span className="font-mono text-[10px] uppercase tracking-widest text-white/40">
-                  Seat {idx + 1}
+                  Seat {seatIndex + 1}
                 </span>
-                {occupant?.is_host && <span className="text-ko-gold text-xs">★ host</span>}
+                {occupant?.isHost && <span className="text-xs text-ko-gold">★ host</span>}
               </div>
-              <div className="mt-1 font-display tracking-widest text-lg">
+              <div className="mt-1 font-display text-lg tracking-widest">
                 {occupant
-                  ? occupant.display_name.toUpperCase()
+                  ? occupant.displayName.toUpperCase()
                   : <span className="text-white/40">{pending ? 'SITTING…' : 'EMPTY'}</span>}
               </div>
-              {isMine && <div className="text-[10px] uppercase text-ko-blue tracking-widest">you</div>}
+              {isMine && <div className="text-[10px] uppercase tracking-widest text-ko-blue">you</div>}
+              {occupant && !isMine && <div className="text-[10px] uppercase tracking-widest text-white/35">occupied</div>}
             </button>
           );
         })}

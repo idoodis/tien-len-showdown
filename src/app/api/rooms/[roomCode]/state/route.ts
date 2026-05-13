@@ -5,9 +5,9 @@ export const dynamic = 'force-dynamic';
 
 export async function GET(
   request: Request,
-  { params }: { params: { code: string } },
+  { params }: { params: { roomCode: string } },
 ) {
   const url = new URL(request.url);
   const playerId = url.searchParams.get('playerId') ?? undefined;
-  return toRouteResponse(await fetchRoomState(params.code, playerId));
+  return toRouteResponse(await fetchRoomState(params.roomCode, playerId));
 }

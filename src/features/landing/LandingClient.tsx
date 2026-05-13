@@ -1,30 +1,33 @@
 'use client';
 
-import { useState, useTransition } from 'react';
+import { useState } from 'react';
 import { useRouter } from 'next/navigation';
 import Link from 'next/link';
-import { createRoomAction } from '@/server/actions/room';
+import { createRoom } from '@/features/room/api';
 import { usePlayerSession } from '@/features/player-session/usePlayerSession';
 import { DisplayNameModal } from '@/components/room/DisplayNameModal';
 
 export function LandingClient() {
   const router = useRouter();
   const session = usePlayerSession();
-  const [busy, start] = useTransition();
+  const [busy, setBusy] = useState(false);
   const [err, setErr] = useState<string | null>(null);
   const [joinCode, setJoinCode] = useState('');
   const [needsName, setNeedsName] = useState<null | 'create' | 'join'>(null);
 
-  const doCreate = (displayName: string) => {
+  const doCreate = async (displayName: string) => {
     setErr(null);
-    start(async () => {
-      const r = await createRoomAction({ playerId: session.playerId, displayName });
-      if (!r.ok) {
-        setErr(r.error);
+    setBusy(true);
+    try {
+      const result = await createRoom({ playerId: session.playerId, displayName });
+      if (!result.ok) {
+        setErr(result.error);
         return;
       }
-      router.push(`/room/${r.code}`);
-    });
+      router.push(`/room/${result.data.roomCode}`);
+    } finally {
+      setBusy(false);
+    }
   };
 
   const doJoin = (displayName: string) => {
@@ -37,43 +40,50 @@ export function LandingClient() {
   };
 
   const handleCreate = () => {
-    if (!session.ready) return;
-    if (session.displayName) doCreate(session.displayName);
-    else setNeedsName('create');
+    if (!session.ready || busy) return;
+    if (session.displayName) {
+      void doCreate(session.displayName);
+      return;
+    }
+    setNeedsName('create');
   };
+
   const handleJoin = () => {
-    if (!session.ready) return;
+    if (!session.ready || busy) return;
     if (!joinCode.trim()) {
       setErr('Enter a room code first.');
       return;
     }
-    if (session.displayName) doJoin(session.displayName);
-    else setNeedsName('join');
+    if (session.displayName) {
+      doJoin(session.displayName);
+      return;
+    }
+    setNeedsName('join');
   };
 
   return (
     <div className="space-y-10">
       <section className="arena relative overflow-hidden rounded-2xl p-8 md:p-14">
-        <p className="font-mono text-[10px] uppercase tracking-[0.5em] text-ko-blue mb-2">VIETNAMESE THIRTEEN · ARCADE EDITION</p>
-        <h1 className="font-display tracking-[0.04em] leading-none neon-text text-6xl md:text-8xl">
+        <p className="mb-2 font-mono text-[10px] uppercase tracking-[0.5em] text-ko-blue">VIETNAMESE THIRTEEN · ARCADE EDITION</p>
+        <h1 className="font-display text-6xl leading-none tracking-[0.04em] neon-text md:text-8xl">
           TIEN&nbsp;LEN
           <br />
           <span className="neon-pink">SHOWDOWN</span>
         </h1>
         <div className="slash-divider my-6 max-w-md" />
-        <p className="max-w-xl text-white/70 text-sm md:text-base">
+        <p className="max-w-xl text-sm text-white/70 md:text-base">
           Invite friends in one click. No accounts. No payments. Just cards,
           dramatic turn callouts, and the satisfying click of a 2♥ slamming the trick.
         </p>
 
-        <div className="mt-8 grid gap-4 md:grid-cols-2 max-w-2xl">
-          <button onClick={handleCreate} disabled={busy} className="btn-primary text-base h-12">
+        <div className="mt-8 grid max-w-2xl gap-4 md:grid-cols-2">
+          <button onClick={handleCreate} disabled={busy} className="btn-primary h-12 text-base">
             {busy ? 'Spinning up…' : 'CREATE ROOM'}
           </button>
           <div className="flex gap-2">
             <input
               value={joinCode}
-              onChange={(e) => setJoinCode(e.target.value.toUpperCase())}
+              onChange={(event) => setJoinCode(event.target.value.toUpperCase())}
               maxLength={10}
               placeholder="ROOM CODE"
               className="flex-1 rounded-md border border-white/10 bg-arena-0 px-3 py-2 font-mono uppercase tracking-[0.3em] outline-none focus:border-ko-blue"
@@ -104,8 +114,11 @@ export function LandingClient() {
           onSubmit={(name) => {
             session.setDisplayName(name);
             setNeedsName(null);
-            if (needsName === 'create') doCreate(name);
-            else doJoin(name);
+            if (needsName === 'create') {
+              void doCreate(name);
+              return;
+            }
+            doJoin(name);
           }}
         />
       )}
@@ -117,8 +130,8 @@ function Step({ n, title, children }: { n: string; title: string; children: Reac
   return (
     <div className="panel rounded-md p-4">
       <div className="font-mono text-xs text-ko-blue">{n}</div>
-      <h3 className="font-display text-xl tracking-widest mt-1">{title}</h3>
-      <p className="text-sm text-white/60 mt-1">{children}</p>
+      <h3 className="mt-1 font-display text-xl tracking-widest">{title}</h3>
+      <p className="mt-1 text-sm text-white/60">{children}</p>
     </div>
   );
 }

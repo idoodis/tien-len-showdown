@@ -205,4 +205,28 @@ If any step doesn't work, see §11 below.
 
 If you later want any of the above, the codebase is structured to extend:
 the rules engine in `src/game/rules/` is pure TS, and every server mutation is
-isolated in `src/server/actions/room.ts`.
+isolated behind `src/server/rooms/service.ts` plus the `/api/rooms/*` route handlers.
+
+---
+
+## 13 · Seat click does nothing - how to debug
+
+1. Open the deployed room page in Chrome DevTools.
+2. Click an empty seat and inspect `POST /api/rooms/<ROOM_CODE>/sit`.
+3. The request body must include:
+   - `playerId`
+   - `displayName`
+   - `seatIndex`
+4. The response must be structured JSON:
+   - success: `{ "ok": true, "data": ... }`
+   - error: `{ "ok": false, "error": "...", "code": "..." }`
+5. If the sit write succeeds but the UI still shows an empty seat, inspect `GET /api/rooms/<ROOM_CODE>/state`.
+   The seated player must appear in `players` and in the four-slot `seats` array.
+6. In the browser console, inspect `localStorage["tls.session"]`.
+   It must contain the same anonymous `playerId` across refreshes plus the player's `displayName`.
+7. In Vercel, verify these env vars are set for Production, Preview, and Development:
+   - `NEXT_PUBLIC_SUPABASE_URL`
+   - `NEXT_PUBLIC_SUPABASE_ANON_KEY`
+   - `SUPABASE_SERVICE_ROLE_KEY`
+8. In Supabase, verify [0002_room_player_seat_index.sql](./supabase/migrations/0002_room_player_seat_index.sql) has been applied so only non-null seats are unique per room.
+9. If writes work but reads look stale, redeploy after confirming the server is using the latest [service.ts](./src/lib/supabase/service.ts) with `cache: 'no-store'` on the service-role client.

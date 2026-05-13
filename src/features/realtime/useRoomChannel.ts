@@ -1,42 +1,17 @@
 'use client';
 
 import { useEffect, useRef, useState } from 'react';
+import { fetchRoomState } from '@/features/room/api';
+import type { RoomStateView } from '@/features/room/types';
 import { getBrowserSupabase } from '@/lib/supabase/client';
-import type { Card } from '@/game/rules/types';
-import type { PublicState } from '@/game/state/projection';
-
-export interface RoomPlayer {
-  player_id: string;
-  display_name: string;
-  seat: number | null;
-  is_host: boolean;
-  connected: boolean;
-}
-
-export interface RoomFetchResult {
-  ok: true;
-  room: { code: string; status: string; hostPlayerId: string | null };
-  players: RoomPlayer[];
-  publicState: PublicState | null;
-  yourHand: Card[] | null;
-  yourQueued: number[] | null;
-  tick: number;
-  isMember: boolean;
-}
+import { debugLog } from '@/lib/debug';
 
 interface Hook {
-  data: RoomFetchResult | null;
+  data: RoomStateView | null;
   refresh: () => Promise<void>;
-  /** Last event observed — useful for animation triggers. */
   lastEvent: { kind: string; createdAt: string; payload: Record<string, unknown>; playerId: string | null } | null;
 }
 
-/**
- * Subscribes to a room's Supabase Realtime channels. On every relevant change
- * (player joined/left, event written), re-fetches the secure /api/room state.
- * Falls back to a short polling cadence for safety in case a Realtime event
- * is missed.
- */
 export function useRoomChannel({
   code,
   playerId,
@@ -44,78 +19,129 @@ export function useRoomChannel({
   code: string;
   playerId: string;
 }): Hook {
-  const [data, setData] = useState<RoomFetchResult | null>(null);
+  const [data, setData] = useState<RoomStateView | null>(null);
   const [lastEvent, setLastEvent] = useState<Hook['lastEvent']>(null);
-  const lastTick = useRef<number>(-1);
   const inflight = useRef<Promise<void> | null>(null);
+  const lastTick = useRef<number>(-1);
 
   const refresh = async () => {
     if (!playerId) return;
     if (inflight.current) return inflight.current;
-    const url = `/api/room/${code}/state?playerId=${encodeURIComponent(playerId)}&t=${Date.now()}`;
+
     inflight.current = (async () => {
       try {
-        const r = await fetch(url, { cache: 'no-store' });
-        if (!r.ok) return;
-        const json = (await r.json()) as RoomFetchResult;
-        // Always update player list / hand; dedupe publicState by tick.
-        setData((prev) => {
-          if (!prev) return json;
-          if (json.tick === lastTick.current) {
-            return { ...prev, players: json.players, yourHand: json.yourHand, yourQueued: json.yourQueued, room: json.room, isMember: json.isMember };
+        const result = await fetchRoomState(code, playerId);
+        if (!result.ok) {
+          debugLog('room:refresh:error', result);
+          return;
+        }
+
+        setData((previous) => {
+          if (!previous) {
+            lastTick.current = result.data.tick;
+            return result.data;
           }
-          lastTick.current = json.tick;
-          return json;
+
+          if (result.data.tick === lastTick.current) {
+            return {
+              ...previous,
+              ...result.data,
+            };
+          }
+
+          lastTick.current = result.data.tick;
+          return result.data;
         });
       } finally {
         inflight.current = null;
       }
     })();
+
     return inflight.current;
   };
 
   useEffect(() => {
     if (!code || !playerId) return;
-    let stopped = false;
-    refresh();
+    void refresh();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [code, playerId]);
 
+  useEffect(() => {
+    if (!code || !playerId || !data?.room.id) return;
+
+    let stopped = false;
     const supabase = getBrowserSupabase();
+    const roomId = data.room.id;
+
     const channel = supabase
-      .channel(`room:${code}`)
+      .channel(`room:${roomId}`)
       .on(
         'postgres_changes',
-        { event: '*', schema: 'public', table: 'room_players' },
-        () => { if (!stopped) refresh(); },
-      )
-      .on(
-        'postgres_changes',
-        { event: 'INSERT', schema: 'public', table: 'room_events' },
-        (payload) => {
+        {
+          event: '*',
+          schema: 'public',
+          table: 'room_players',
+          filter: `room_id=eq.${roomId}`,
+        },
+        () => {
           if (stopped) return;
-          const row = payload.new as { kind: string; created_at: string; payload: Record<string, unknown>; player_id: string | null; room_id: string };
-          setLastEvent({ kind: row.kind, createdAt: row.created_at, payload: row.payload, playerId: row.player_id });
-          refresh();
+          debugLog('room:realtime', 'room_players change', roomId);
+          void refresh();
         },
       )
       .on(
         'postgres_changes',
-        { event: 'UPDATE', schema: 'public', table: 'rooms' },
-        () => { if (!stopped) refresh(); },
+        {
+          event: 'INSERT',
+          schema: 'public',
+          table: 'room_events',
+          filter: `room_id=eq.${roomId}`,
+        },
+        (payload) => {
+          if (stopped) return;
+          const row = payload.new as {
+            kind: string;
+            created_at: string;
+            payload: Record<string, unknown>;
+            player_id: string | null;
+          };
+          debugLog('room:realtime', 'room_event', row);
+          setLastEvent({
+            kind: row.kind,
+            createdAt: row.created_at,
+            payload: row.payload,
+            playerId: row.player_id,
+          });
+          void refresh();
+        },
+      )
+      .on(
+        'postgres_changes',
+        {
+          event: 'UPDATE',
+          schema: 'public',
+          table: 'rooms',
+          filter: `id=eq.${roomId}`,
+        },
+        () => {
+          if (stopped) return;
+          debugLog('room:realtime', 'room updated', roomId);
+          void refresh();
+        },
       )
       .subscribe();
 
-    // Safety-net poll. 1.5s is short enough that a missed Realtime event
-    // doesn't make the UI feel broken, but long enough not to flood the
-    // serverless route handler.
-    const interval = setInterval(refresh, 1500);
+    const interval = window.setInterval(() => {
+      void refresh();
+    }, 1500);
 
     return () => {
       stopped = true;
-      clearInterval(interval);
-      supabase.removeChannel(channel);
+      window.clearInterval(interval);
+      void supabase.removeChannel(channel);
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [code, playerId]);
+  }, [code, playerId, data?.room.id]);
 
   return { data, refresh, lastEvent };
 }
