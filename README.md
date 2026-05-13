@@ -2,6 +2,9 @@
 
 A fast, free, invite-only **Tiến Lên** card battle for the browser.
 
+**🎮 Play now → <https://tien-len-showdown.vercel.app>**
+**📦 Repo → <https://github.com/idoodis/tien-len-showdown>**
+
 - **No accounts.** Just pick a display name.
 - **No payments, no economy.** Cosmetic-free, ad-free, ledger-free.
 - **Invite-only rooms.** Share a six-letter code or link with friends.
