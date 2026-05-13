@@ -1,0 +1,14 @@
+project_id = "tien-len-royale"
+
+[db]
+port = 54322
+shadow_port = 54320
+major_version = 15
+
+[api]
+port = 54321
+schemas = ["public"]
+
+[auth]
+enable_signup = true
+enable_anonymous_sign_ins = false
