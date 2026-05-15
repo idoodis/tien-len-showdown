@@ -29,7 +29,7 @@ export function PlayingCard({
     size === 'lg' ? 'h-24 w-16 md:h-28 md:w-20'
     : size === 'sm' ? 'h-12 w-9 md:h-14 md:w-10'
     : size === 'xs' ? 'h-11 w-8 md:h-12 md:w-9'
-    : 'h-16 w-11 md:h-20 md:w-14';
+    : 'h-[72px] w-[50px] md:h-20 md:w-14';
 
   if (faceDown || !card) {
     return <div className={cn('card-back rounded-lg', dim)} />;
