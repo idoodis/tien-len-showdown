@@ -225,7 +225,7 @@ export function GameTableView(props: Props) {
         key={shake}
         animate={shake > 0 ? { x: [0, -6, 6, -4, 4, 0] } : undefined}
         transition={{ duration: 0.32 }}
-        className="arena relative h-[620px] overflow-hidden rounded-2xl"
+        className="arena relative h-[560px] overflow-hidden rounded-2xl md:h-[620px]"
       >
         {opponentLayout.map((opponent) => (
           <PlayerSeat
@@ -279,7 +279,7 @@ export function GameTableView(props: Props) {
           </div>
         )}
 
-        <div className="panel absolute left-3 top-3 rounded-md px-3 py-2">
+          <div className="panel absolute left-3 top-3 rounded-md px-3 py-2">
           <div className="font-mono text-[10px] uppercase tracking-[0.35em] text-white/45">
             Current turn
           </div>
@@ -307,8 +307,8 @@ export function GameTableView(props: Props) {
 
       {me && me.finishedAt === null && !gameOver && (
         <div className="panel rounded-md p-3">
-          <div className="flex flex-wrap items-center gap-2">
-            <div className="font-mono text-xs uppercase tracking-widest text-white/60">
+          <div className="grid grid-cols-2 gap-2 md:flex md:flex-wrap md:items-center">
+            <div className="col-span-2 font-mono text-xs uppercase tracking-widest text-white/60 md:col-span-1">
               {previewCombo ? (
                 <>
                   <span className="text-white/40">preview:</span>{' '}
@@ -318,24 +318,24 @@ export function GameTableView(props: Props) {
                 <span className="text-white/30">select cards...</span>
               )}
             </div>
-            <div className="flex-1" />
-            <button onClick={() => void submitPlay([...selected])} disabled={!isMyTurn || busy || selected.size === 0} className="btn-primary">PLAY</button>
-            <button onClick={() => void onPass()} disabled={!isMyTurn || busy || !publicState.currentCombo} className="btn-secondary">PASS</button>
+            <div className="hidden flex-1 md:block" />
+            <button onClick={() => void submitPlay([...selected])} disabled={!isMyTurn || busy || selected.size === 0} className="btn-primary min-h-11 w-full md:w-auto">PLAY</button>
+            <button onClick={() => void onPass()} disabled={!isMyTurn || busy || !publicState.currentCombo} className="btn-secondary min-h-11 w-full md:w-auto">PASS</button>
             <button
               onClick={() => void onQueue()}
               disabled={isMyTurn || busy || selected.size === 0}
-              className="btn-ghost"
+              className="btn-ghost min-h-11 w-full md:w-auto"
               title="Queue this move to auto-submit when your turn arrives"
             >
               QUEUE MOVE
             </button>
             {props.yourQueued && (
-              <button onClick={() => void onCancelQueue()} disabled={busy} className="btn-danger">CANCEL QUEUE</button>
+              <button onClick={() => void onCancelQueue()} disabled={busy} className="btn-danger min-h-11 w-full md:w-auto">CANCEL QUEUE</button>
             )}
-            <button onClick={() => setSelected(new Set())} disabled={selected.size === 0 || busy} className="btn-ghost">
+            <button onClick={() => setSelected(new Set())} disabled={selected.size === 0 || busy} className="btn-ghost min-h-11 w-full md:w-auto">
               CLEAR
             </button>
-            <button onClick={props.onLeave} disabled={busy} className="btn-ghost">
+            <button onClick={props.onLeave} disabled={busy} className="btn-ghost col-span-2 min-h-11 w-full md:col-span-1 md:w-auto">
               LEAVE ROOM
             </button>
           </div>

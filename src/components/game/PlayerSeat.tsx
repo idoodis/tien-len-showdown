@@ -33,23 +33,23 @@ export function PlayerSeat({
     position === 'top' ? 'absolute top-3 left-1/2 -translate-x-1/2 flex-col items-center'
     : position === 'left' ? 'absolute left-3 top-1/2 -translate-y-1/2 flex-col items-start'
     : position === 'right' ? 'absolute right-3 top-1/2 -translate-y-1/2 flex-col items-end'
-    : 'absolute bottom-36 left-1/2 -translate-x-1/2 flex-col items-center';
+    : 'absolute bottom-28 left-1/2 -translate-x-1/2 flex-col items-center md:bottom-36';
 
   return (
     <motion.div layout className={cn('flex gap-2', wrap)}>
       <div
         className={cn(
-          'flex items-center gap-2 rounded-md px-3 py-1.5 panel text-sm',
+          'flex items-center gap-2 rounded-md px-2.5 py-1 panel text-xs md:px-3 md:py-1.5 md:text-sm',
           isActive ? 'seat-active animate-haloPulse' : '',
           finishedAt !== null ? 'opacity-50' : '',
           isWinner && 'border-ko-gold/55 shadow-neonGold',
         )}
       >
         {isHost && <span className="text-ko-gold text-xs">★</span>}
-        <span className="font-display text-base tracking-wider text-white">{name}</span>
+        <span className="font-display text-sm tracking-wider text-white md:text-base">{name}</span>
         {isYou && <span className="rounded-full bg-ko-blue/20 px-2 text-[10px] text-ko-blue">YOU</span>}
         {isLeader && <span className="rounded-full bg-ko-gold/15 px-2 text-[10px] text-ko-gold">CROWN</span>}
-        <span className="rounded-full bg-white/6 px-2 text-[10px] font-mono uppercase tracking-[0.2em] text-white/65">
+        <span className="rounded-full bg-white/6 px-2 text-[9px] font-mono uppercase tracking-[0.2em] text-white/65 md:text-[10px]">
           Wins {wins}
         </span>
         {finishedAt !== null && (
@@ -57,7 +57,7 @@ export function PlayerSeat({
         )}
       </div>
       <div className="flex -space-x-3">
-        {Array.from({ length: Math.min(cardCount, 8) }).map((_, i) => (
+        {Array.from({ length: Math.min(cardCount, position === 'bottom' ? 6 : 8) }).map((_, i) => (
           <PlayingCard key={i} faceDown size="sm" />
         ))}
         {cardCount > 8 && (

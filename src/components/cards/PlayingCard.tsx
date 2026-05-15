@@ -22,10 +22,14 @@ export function PlayingCard({
   selected?: boolean;
   faceDown?: boolean;
   onClick?: () => void;
-  size?: 'sm' | 'md' | 'lg';
+  size?: 'xs' | 'sm' | 'md' | 'lg';
   glow?: 'blue' | 'gold' | 'pink' | null;
 }) {
-  const dim = size === 'lg' ? 'w-20 h-28' : size === 'sm' ? 'w-10 h-14' : 'w-14 h-20';
+  const dim =
+    size === 'lg' ? 'h-24 w-16 md:h-28 md:w-20'
+    : size === 'sm' ? 'h-12 w-9 md:h-14 md:w-10'
+    : size === 'xs' ? 'h-11 w-8 md:h-12 md:w-9'
+    : 'h-16 w-11 md:h-20 md:w-14';
 
   if (faceDown || !card) {
     return <div className={cn('card-back rounded-lg', dim)} />;
@@ -53,7 +57,7 @@ export function PlayingCard({
       )}
     >
       <CornerLabel rank={RANK_LABEL[card.rank]} suit={SUIT_GLYPH[card.suit]} red={red} />
-      <div className={cn('absolute inset-0 grid place-items-center text-3xl select-none', red ? 'text-red-700' : 'text-black')}>
+      <div className={cn('absolute inset-0 grid place-items-center select-none text-2xl md:text-3xl', red ? 'text-red-700' : 'text-black')}>
         {SUIT_GLYPH[card.suit]}
       </div>
       <CornerLabel rank={RANK_LABEL[card.rank]} suit={SUIT_GLYPH[card.suit]} red={red} rotated />
@@ -65,7 +69,7 @@ function CornerLabel({ rank, suit, red, rotated }: { rank: string; suit: string;
   return (
     <div
       className={cn(
-        'absolute font-bold leading-none text-[10px]',
+        'absolute font-bold leading-none text-[9px] md:text-[10px]',
         rotated ? 'bottom-1 right-1 rotate-180' : 'top-1 left-1',
         red ? 'text-red-700' : 'text-black',
       )}
